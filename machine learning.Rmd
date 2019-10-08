@@ -1,0 +1,308 @@
+---
+title: "machine learning"
+author: "Di"
+date: "April 29, 2019"
+output:
+  word_document: default
+---
+
+Comment:
+
+My final model is random forest model with 3 variables randomly sampled as candidates at each split and 500 trees to grow. 
+
+ 
+
+```{r}
+#input data
+setwd("C:/Users/Di/Desktop/JOB/machine learning")
+loan.train <- read.csv("loan_train.csv", header = T)
+loan.test <- read.csv("loan_test.csv", header = T)
+
+#factor
+loan.train$New <- as.factor(loan.train$New)
+loan.test$New <- as.factor(loan.test$New)
+loan.train$RealEstate <- as.factor(loan.train$RealEstate)
+loan.test$RealEstate <- as.factor(loan.test$RealEstate)
+loan.train$Recession <- as.factor(loan.train$Recession)
+loan.test$Recession <- as.factor(loan.test$Recession)
+
+#simplify only use variable: col 26:31; response: col 1
+loan.train <- loan.train[,c(1,26:31)]
+loan.test <- loan.test[,c(1,26:31)]
+
+#change "MIS_Status" into "Approve" and 1: "P I F", 0: "CHGOFF"
+Approve <- 1:dim(loan.train)[1]
+for (i in 1:dim(loan.train)[1]){
+  if (loan.train$MIS_Status[i] == "P I F"){
+    Approve[i] = 1
+  } else{Approve[i] = 0}
+}
+
+loan.train[,1] <- as.factor(Approve)
+head(loan.train)
+head(loan.test)
+```
+
+```{r}
+#delete with training missing data
+sum(complete.cases(loan.train) == FALSE) #how many missing value row
+#which row contain missing data
+rowmissing <- which(complete.cases(loan.train) == FALSE) #row missing
+loan.train[rowmissing,]
+
+#delete that missing row 
+loan.train <- loan.train[-rowmissing,]
+sum(complete.cases(loan.train) == FALSE)
+
+
+
+#deal with test missing data
+sum(complete.cases(loan.test) == FALSE) #how many missing value row
+#which row contain missing data
+rowmissing <- which(complete.cases(loan.test) == FALSE)
+loan.test[rowmissing,]
+
+#predict that row with mean
+loan.test$xx[rowmissing] <- mean(loan.test$xx[complete.cases(loan.test$xx)])
+sum(complete.cases(loan.test) == FALSE)
+```
+
+```{r}
+#split data into training data and test data
+train.size <- dim(loan.train)[1] * 3/ 4
+train <- sample(1:dim(loan.train)[1], train.size) #choose train.size # from entire row #
+test <- -train
+#training data
+dat.train <- loan.train[train, ]
+#test data
+dat.test <- loan.train[test, ]
+```
+
+#Logistic Regression
+```{r}
+#fit logistic regression model
+glm.fit <- glm(MIS_Status ~ . , data = dat.train, family = binomial)
+
+#predict logistic model
+glm.prob <- predict(glm.fit, newdata = dat.test, type="response")  
+```
+
+
+```{r}
+#table
+#choose threshold number as 0.5
+#prob > 0.5 is 1; prob < 0.5 is 1
+glm.pred <- rep(0, dim(dat.test)[1])
+glm.pred[glm.prob > 0.5] <- 1
+t <- table(predict = glm.pred, truth = dat.test$MIS_Status)
+t
+#correctly predict
+sum(diag(t))/sum(t)
+```
+
+Comment: `r round(sum(diag(t))/sum(t)*100,2)`% of MIS_Status is correctly predicted.
+
+#Linear Discriminant Analysis
+```{r}
+#fit LDA model
+library(MASS)
+lda.fit <- lda(MIS_Status ~ . , data = dat.train)
+
+#predict LDA model
+lda.pred <- predict(lda.fit, newdata = dat.test) 
+```
+
+```{r}
+#table
+lda.class <- lda.pred$class
+t <- table(predict = lda.class, truth = dat.test$MIS_Status)
+t
+#correctly predict
+sum(diag(t))/sum(t)
+```
+
+Comment: `r round(sum(diag(t))/sum(t)*100,2)`% of MIS_Status is correctly predicted.
+
+#Quadratic Discriminiant Analysis
+```{r}
+library(MASS)
+#QDA
+qda.fit <- qda(MIS_Status ~ . , data = dat.train)
+
+#predict QDA model
+qda.pred <- predict(qda.fit, newdata = dat.test) 
+```
+
+```{r}
+#table
+qda.class <- qda.pred$class
+t <- table(predict = qda.class, truth = dat.test$MIS_Status)
+t
+#correctly predict
+sum(diag(t))/sum(t)
+```
+
+Comment: `r round(sum(diag(t))/sum(t)*100,2)`% of MIS_Status is correctly predicted.
+
+#K-Nearest Neighbors
+```{r}
+library(class)
+knn.prob <- knn(dat.train, dat.test, dat.train$MIS_Status, k = 10, prob = T)
+knn.pred <- knn(dat.train, dat.test, dat.train$MIS_Status, k = 10)
+
+#table
+t <- table(predict = knn.pred, truth = dat.test$MIS_Status)
+t
+#correctly predict
+sum(diag(t))/sum(t)
+```
+
+Comment: `r round(sum(diag(t))/sum(t)*100,2)`% of MIS_Status is correctly predicted.
+
+#Support Vector Classifier
+```{r}
+library(e1071)
+tune.out <- e1071::tune(svm, MIS_Status ~ ., data = dat.train, 
+              probability = TRUE)
+
+bestmod <- tune.out$best.model
+#prob
+svm.prob = predict(bestmod, dat.test, probability = TRUE)
+#predict
+svm.pred <- predict(bestmod, dat.test)
+#table
+t <- table(predict = svm.pred, truth = dat.test$MIS_Status)
+t
+#correctly predict
+sum(diag(t))/sum(t)
+print(bestmod)
+```
+
+Comment: `r round(sum(diag(t))/sum(t)*100,2)`% of MIS_Status is correctly predicted.
+
+#Random Forest
+```{r}
+library(randomForest)
+tune.out.tree <- e1071::tune(randomForest, MIS_Status ~ ., data = dat.train, ranges=list(mtry = 1:6), importance = T, probability = TRUE)
+
+bestmod.tree <- tune.out.tree$best.model
+#best mtry
+bestmod.tree$mtry
+#best ntree
+bestmod.tree$ntree
+#predict
+tree.pred <- predict(bestmod.tree, dat.test)
+#prob
+tree.prob <- predict(bestmod.tree, dat.test, type = 'prob')
+#table
+t <- table(predict = tree.pred, truth = dat.test$MIS_Status)
+t
+#correctly predict
+sum(diag(t))/sum(t)
+```
+
+Comment: `r round(sum(diag(t))/sum(t)*100,2)`% of MIS_Status is correctly predicted.
+
+#ROC curve and PR curve
+```{r}
+# ROC curve
+library(ROCR)
+
+#logistic regression model
+pred.glm <- prediction(glm.prob, dat.test$MIS_Status)
+perf1 <- performance(pred.glm,"tpr","fpr")
+plot(perf1, col = 1)
+title("ROC Curve")
+
+#LDA  model
+pred.lda <- prediction(lda.pred$posterior[,2], dat.test$MIS_Status)
+perf2 <- performance(pred.lda,"tpr","fpr")
+plot(perf2, col = 2, add = T)
+
+#QDA  model
+pred.qda <- prediction(qda.pred$posterior[,2], dat.test$MIS_Status)
+perf3 <- performance(pred.qda,"tpr","fpr")
+plot(perf3, col = 3, add = T)
+
+#KNN  model
+pred.knn <- prediction(attributes(knn.prob)$prob, dat.test$MIS_Status)
+perf4 <- performance(pred.knn, "tpr", "fpr")
+plot(perf4, col = 4, add = T)
+
+#SVM  model
+pred.svm <- prediction(attributes(svm.prob)$probabilities[,1], dat.test$MIS_Status)
+perf5 <- performance(pred.svm, "tpr", "fpr")
+plot(perf5, col = 5, add = T)
+
+#randomForest model
+pred.tree <- prediction(tree.prob[,2], dat.test$MIS_Status)
+perf6 <- performance(pred.tree, "tpr", "fpr")
+plot(perf6, col = 6, add = T)
+
+#legend
+legend("bottomright", legend=c("logistic", "LDA", "QDA", "KNN", "SVM","randomForest"),
+       col=c(1,2,3,4,5,6), lty=1, cex=0.8)
+
+abline(0,1, lty = 2)
+```
+
+
+```{r}
+# PR curve
+perf11 <- performance(pred.glm,"prec","rec")
+perf22 <- performance(pred.lda,"prec","rec")
+perf33 <- performance(pred.qda,"prec","rec")
+perf44 <- performance(pred.knn,"prec","rec")
+perf55 <- performance(pred.svm,"prec","rec")
+perf66 <- performance(pred.tree,"prec","rec")
+plot(perf11, col = 1, ylim = c(0,1))
+title("PR Curve")
+plot(perf22, col = 2, add = T)
+plot(perf33, col = 3, add = T)
+plot(perf44, col = 4, add = T)
+plot(perf55, col = 5, add = T)
+plot(perf66, col = 6, add = T)
+#legend
+legend("bottomleft", legend=c("logistic", "LDA", "QDA", "KNN","SVM","randomForest"),
+       col=c(1,2,3,4,5,6), lty=1, cex=0.8)
+```
+
+
+#Predict on test dataset
+```{r}
+library(randomForest)
+tune.out.tree <- e1071::tune(randomForest, MIS_Status ~ ., data = loan.train, ranges=list(mtry = 1:6), importance = T, probability = TRUE)
+
+bestmod.tree <- tune.out.tree$best.model
+#best mtry
+bestmod.tree$mtry
+#best ntree
+bestmod.tree$ntree
+#predict
+tree.pred <- predict(bestmod.tree, loan.test)
+```
+
+```{r}
+x <- data.frame(CustomerId = loan.test$CustomerId, Approve = tree.pred)
+write.csv(x, file = "result.csv", row.names = T)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
